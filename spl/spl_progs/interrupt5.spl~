@@ -1,0 +1,177 @@
+alias physicalSP S0;
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+alias sysCallNo S1;
+sysCallNo=[physicalSP-1];
+alias counter S2;
+counter=0;
+while (counter < 32) do
+	if([READY_LIST + counter*32 + 1]==0) then		//searchin ready list  for free pcb
+		break;
+	endif;
+	counter=counter+1;
+endwhile;
+while (counter < 64) do
+	if([13312 + (counter%32)*32 + 1]==0) then		//searchin ready list  for free pcb
+		break;
+	endif;
+	counter=counter+1;
+endwhile;
+if (counter==64) then
+	[physicalSP-2]=-1;
+	ireturn;
+endif;
+//breakpoint;
+alias PID S3;
+PID=counter;
+if (PID<32) then
+	[READY_LIST + counter*32]=PID;
+else
+	[13312 + (counter%32)*32]=PID;
+endif;
+//breakpoint;
+counter=28; //0 t0 24 is kernal space
+while(counter<64) do
+	if([MEM_LIST+counter]==0) then			//Searchig Memory for free page to be allocated for stack of child
+		[MEM_LIST+counter]=1;
+		break;
+	endif;
+	counter=counter+1;
+endwhile;
+if(counter==64) then
+	alias i S12;
+	alias Base S14;
+	i=0;
+	alias found S13;
+	found=0;
+	while(found==0) do
+		if(i<128) then
+			Base=1024;
+		else
+			Base=12800;
+		endif;
+		alias j S15;
+		j=2*(i%128);
+		if([Base+j]) then
+			i=i+1;
+			i=i%256;
+			continue;
+		endif;
+		if([Base+j+1]=="01") then
+			if([MEM_LIST+[Base+j]]>1) then
+				i=i+1;
+				i=i%256;
+				continue;
+			endif;
+			alias k S15;
+			k=448;
+			while(k<512) do
+				if([DISK_LIST+k]==0) then
+					[DISK_LIST+k]=1;
+					store(6,20);
+					break;
+				endif;
+				k=k+1;
+			endwhile;
+			if(k==512) then
+				[physicalSP-2]=-1;
+				ireturn;
+			endif;
+			store([Base+j],k);
+			found=[Base+j];
+			[Base+j]=k;
+			[Base+j+1]="00";
+			break;
+		endif;
+		if([Base+j+1]=="11") then
+			[Base+j+1]="01";
+		endif;
+		i=i+1;
+		i=i%256;
+		//breakpoint;
+	endwhile;
+	counter=found;
+endif;
+//breakpoint;
+alias newPTBR S6;
+alias newPCB S7;
+if(PID<32) then
+	newPTBR=1024 + 8 * PID;
+	newPCB=READY_LIST+32*PID;
+else
+	newPTBR=12800 + 8 * (PID%32);
+	newPCB=13312 + 32*(PID%32);
+endif;
+[newPTBR+6]=counter;					//Setting Stack of child in PTB of child
+[newPTBR+7]="01";
+
+alias PStack S10;      //#### stack of parent is copied to stack of chiled ####
+alias CStack S11;
+PStack=[PTBR + 6]*512;
+CStack=counter*512;
+counter=0;
+while(counter<512) do
+	[CStack+counter]=[PStack+counter];
+	counter=counter+1;
+endwhile;
+
+
+counter=0;   
+while(counter<3) do
+	alias temp S14;
+	temp=PTBR+2*counter;
+	[newPTBR+2*counter]=[temp];						
+	[newPTBR+2*counter+1]=[temp+1];			
+	if([temp+1]=="01" || [temp+1]=="11") then	//if valid, then increase reference count in MEM_LIST
+		[MEM_LIST + [temp]]=[MEM_LIST + [temp]]+1;
+	endif;
+	if([temp+1]=="00" && [temp]>=448) then			
+	//####### if the page of parent is moved out for swap  ,,handle the case############
+		[DISK_LIST+[temp]]=[DISK_LIST+[temp]]+1;
+		store(6,20);
+	endif;
+	counter=counter+1;
+endwhile;
+
+//breakpoint;
+alias currentPCB S8;
+alias PPID S10;
+if(PTBR>=1024 && PTBR<=1279) then	
+	PPID=((PTBR-1024)/8);
+	currentPCB=READY_LIST + 32 * PPID;
+else
+	PPID=((PTBR-12800)/8)+32;
+	currentPCB=13312 + 32 * (PPID%32);
+endif;						//saving pcb of child
+[newPCB + 2]=BP;
+[newPCB + 3]=SP-1;
+[newPCB + 4]=[physicalSP];
+[newPCB + 5]=newPTBR;
+[newPCB + 6]=4;
+[newPCB + 7]=R0;
+[newPCB + 8]=R1;
+[newPCB + 9]=R2;
+[newPCB + 10]=R3;
+[newPCB + 11]=R4;
+[newPCB + 12]=R5;
+[newPCB + 13]=R6;
+[newPCB + 14]=R7;
+[newPCB + 31]=PPID;
+counter=15;
+while(counter<31) do
+	alias temp S14;
+	temp=currentPCB+counter;
+	if([temp]!=-1) then
+		[FILE_TABLE + [temp]+1]=[FILE_TABLE + [temp]+1]+1;
+	endif;
+	[newPCB+counter]=[temp];
+	[newPCB+counter+1]=[temp+1];
+	counter=counter+2;
+endwhile;
+[newPCB + 1]=1;
+[currentPCB+1]=2;
+[physicalSP-2]=PID;								//check setting IP CAREFULLY
+alias childPSP S9;
+childPSP=([newPTBR + 2 * ((SP-1) / 512)] * 512) + ((SP-1) % 512);    //calculated by taking sp-1
+[childPSP-1]=-2;
+//breakpoint;
+ireturn;

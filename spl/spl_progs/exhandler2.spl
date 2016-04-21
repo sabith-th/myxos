@@ -1,0 +1,113 @@
+alias Cause S0;
+Cause=EFR%10;
+alias physicalSP S5;
+if(Cause==0) then
+	alias Ip_addr S1;
+	Ip_addr=(EFR/1000);
+	alias Error_page S2;
+	Error_page=(EFR/10)%100;
+	if([PTBR+2*Error_page]==-1) then
+		print("Invalid page access");
+		inline "JMP 11776";
+	endif;
+	alias DiskBlock S3;
+	DiskBlock=[PTBR+2*Error_page];
+	alias i S4;
+	i=25;
+	//breakpoint;
+	while(i<64) do
+		if([MEM_LIST + i]==0) then
+			break;
+		endif;
+		i=i+1;
+	endwhile;
+	//breakpoint;
+	if(i==64) then
+		alias found S6;
+		found=0;
+		alias Base S7;
+		i=0;
+		while(found==0) do
+			if(i<128) then
+				Base=1024;
+			else
+				Base=12800;
+			endif;
+			if([Base+(i%128)*2]==[PTBR+6]) then
+				i=i+1;
+				i=i%256;
+				continue;
+			endif;
+			if([Base+(i%128)*2+1]=="01") then
+				if([MEM_LIST+[Base+2*(i%128)]]>1) then
+					i=i+1;
+					i=i%256;
+					continue;
+				endif;
+				alias k S15;
+				k=448;
+				while(k<512) do
+					if([DISK_LIST+k]==0) then
+						[DISK_LIST+k]=1;
+						store(6,20);
+						break;
+					endif;
+					k=k+1;
+				endwhile;
+				if(k==512) then
+					[physicalSP-2]=-1;
+					ireturn;
+				endif;
+				store([Base+(i%128)*2],k);
+				found=[Base+(i%128)*2];
+				[Base+(i%128)*2]=k;
+				[Base+(i%128)*2+1]="00";
+				break;
+			endif;
+			if([Base+(i%128)*2+1]=="11") then
+				[Base+(i%128)*2+1]="01";
+			endif;
+			i=i+1;
+			i=i%256;
+				//breakpoint;
+		endwhile;
+		i=found;
+	endif;
+	[MEM_LIST + i]=1;
+	[PTBR+2*Error_page]=i;
+	[PTBR + 2*Error_page +1]="11";
+	load(i,DiskBlock);
+	if(DiskBlock>=448 && DiskBlock<=511) then
+		[DISK_LIST+DiskBlock]=[DISK_LIST+DiskBlock]-1;
+	endif;
+	SP=SP+1;
+	physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+	[physicalSP]=Ip_addr;
+	breakpoint;
+	ireturn;
+endif;
+if(Cause==1) then
+	print("Illegal Instruction");
+	physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+	[physicalSP-1]=10;
+	inline "JMP 11776";
+endif;
+if(Cause==2) then
+	print("Illegal Memory Access");
+	physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+	[physicalSP-1]=10;
+	inline "JMP 11776";
+endif;
+if(Cause==3) then
+	print("Arithmetic Exception");
+	physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+	[physicalSP-1]=10;
+	inline "JMP 11776";
+endif;
+if(Cause==4) then	
+	print("Illegal Operands");
+	physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+	[physicalSP-1]=10;
+	inline "JMP 11776";
+endif;
+ireturn;

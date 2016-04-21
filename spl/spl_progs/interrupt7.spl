@@ -1,0 +1,140 @@
+alias physicalSP S0;
+physicalSP = ([PTBR + 2 * (SP / 512)] * 512) + (SP % 512);
+alias sysCallNo S1;
+sysCallNo=[physicalSP-1];
+alias i S2;
+alias schedule S12;
+if(sysCallNo == 10) then
+	alias PID S3;
+	alias currentPCB S4;
+	alias found S13;
+	found=0;
+	if(PTBR>=1024 && PTBR<=1279) then
+		PID = (PTBR - 1024) / 8;
+		currentPCB = READY_LIST + 32 * PID;
+	else
+		PID= ((PTBR - 12800) / 8) + 32;
+		currentPCB = 13312 + 32 * (PID%32);
+	endif;
+	i=0;
+	while(i<64) do
+		alias temp S14;
+		if(i<32) then
+			temp=READY_LIST+i*32+1;
+		else
+			temp=13312+32*(i%32)+1;
+		endif;
+		if([temp]==(100+PID)) then
+			[temp]=1;
+			found=1;
+		endif;
+		if([temp]==(100+PID)) then
+			[temp]=1;
+			found=1;
+		endif;
+		i=i+1;
+	endwhile;
+	if(found==0) then
+		halt;
+	endif;
+	i=15;
+	while(i<=30) do
+		alias OFT_IN S5;
+		OFT_IN=[currentPCB + i];
+		found=FILE_TABLE + OFT_IN;
+		if(OFT_IN!=-1) then
+			[found + 1]=[found + 1] - 1;
+			if ([found + 1] == 0) then
+				[found]=-1;
+			endif;
+			[currentPCB + i]=-1;
+			[currentPCB + i+1]=-1;
+		endif;	
+		i=i+2;
+	endwhile;
+	[currentPCB + 1]=0;
+	i=0;
+	while(i<4) do
+		found=PTBR+2*i;
+		if(([found+1]=="01"|| [found+1]=="11")) then
+			[MEM_LIST+[found]]=[MEM_LIST+[found]]-1;
+			[found]=-1;
+			[found+1]="00";
+		endif;
+		if([found+1]=="00" && [found]>=448) then
+			[DISK_LIST+[found]]=[DISK_LIST+[found]]-1;
+			store(6,20);
+		endif;
+		i=i+1;
+	endwhile;
+	schedule=1;
+endif;
+
+if(sysCallNo ==13) then
+	alias WaitingPID S3;
+	WaitingPID=[physicalSP-3];
+	alias WPCB S4;
+	if (WaitingPID<32) then
+		WPCB=READY_LIST + WaitingPID*32;
+	else
+		WPCB=13312 + (WaitingPID%32)*32;
+	endif;
+	if([WPCB+1]==2 || [WPCB+1]==0) then
+		[physicalSP-2]=-1;
+		ireturn;
+	endif;
+	alias currentPCB S5;
+	if(PTBR>=1024 && PTBR<=1279) then
+		currentPCB = READY_LIST + 32 * ((PTBR - 1024) / 8);
+	else
+		currentPCB = 13312 + 32 * ((PTBR - 12800) / 8);
+	endif;
+	[currentPCB+1]=100 + WaitingPID;
+	[currentPCB + 2 ] = BP;
+	[currentPCB + 3 ] = SP-1;
+	[currentPCB + 4 ] = [physicalSP];
+	[currentPCB + 5 ] = PTBR;
+	[currentPCB + 6 ] = PTLR;
+	[currentPCB + 7 ] = R0;
+	[currentPCB + 8 ] = R1;
+	[currentPCB + 9 ] = R2;
+	[currentPCB + 10 ] = R3;
+	[currentPCB + 11 ] = R4;
+	[currentPCB + 12 ] = R5;
+	[currentPCB + 13 ] = R6; 
+	[currentPCB + 14 ] = R7;
+	[physicalSP-2]=0;
+	schedule=1;
+endif;
+if(sysCallNo==14) then
+	alias currentPID S4;
+	if(PTBR>=1024 && PTBR<=1279) then
+		currentPID = (PTBR - 1024) / 8;
+		//currentPCB = READY_LIST + 32 * currentPID;
+	else
+		currentPID= (PTBR - 12800) / 8 + 32;
+		//currentPCB = 13312 + 32 * (currentPID%32);
+	endif;
+	i=0;
+	while(i<64) do
+		alias temp S14;
+		if (i<32) then
+			temp=READY_LIST+i*32+1;
+		else
+			temp=13312+(i%32)*32+1;
+		endif;
+		if([temp]==(100+currentPID)) then
+			[temp]=1;
+		endif;
+		i=i+1;
+	endwhile;	
+	[physicalSP-2]=0;
+	//breakpoint;
+	//ireturn;
+endif;
+if(schedule==1) then
+	//print("problem");
+	inline "JMP 4780";
+	schedule=0;
+endif;
+ireturn;
